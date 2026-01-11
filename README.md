@@ -297,13 +297,13 @@ EXPERIMENT SUMMARY STATISTICS
 # Real LLM integration
 from openai import OpenAI
 
-class GPT4CognitionEngine:
+class GPT5CognitionEngine:
     def __init__(self, api_key: str):
         self.client = OpenAI(api_key=api_key)
     
     def __call__(self, prompt: str, context: Dict) -> Dict:
         response = self.client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-5",
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"}
         )
