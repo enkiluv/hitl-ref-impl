@@ -24,42 +24,62 @@ This implementation demonstrates the **R-CCAM architecture** with integrated **C
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────┐
-│                    METAPROMPT                        │
-│         (Soft Symbolic Control Layer)                │
-└──────────────────────────────────────────────────────┘
-                         ↓
-           ┌─────────────────────────┐
-           │   RETRIEVAL (R - Once)  │
-           └──────────┬──────────────┘
-                      ↓
-           ┌──────────────────────────┐
-           │   CCAM LOOP (Repeat)     │
-           │  ┌────────────────────┐  │
-           │  │    COGNITION (C)   │←─┼─── Metaprompt + Human Feedback
-           │  └─────────┬──────────┘  │
-           │            ↓             │
-           │  ┌────────────────────┐  │
-           │  │     CONTROL (C)    │  │
-           │  └─────────┬──────────┘  │
-           │            ↓             │
-           │  ┌────────────────────┐  │
-           │  │   HITL CHECK (H)   │←─┼─── Freeze/Thaw, Approve/Reject
-           │  └─────────┬──────────┘  │
-           │            ↓             │
-           │  ┌────────────────────┐  │
-           │  │     ACTION (A)     │←─┼─── External tools
-           │  └─────────┬──────────┘  │
-           │            ↓             │
-           │  ┌────────────────────┐  │
-           │  │     MEMORY (M)     │  │
-           │  └────────────────────┘  │
-           └──────────────────────────┘
-                      ↓
-           ┌──────────────────────────┐
-           │   GLASSBOX TRACE         │
-           │   (Full Audit Log)       │
-           └──────────────────────────┘
+                                                        ┌───────────────────┐
+                                                        │    Metaprompt     │
+                                                        │ (Soft Symbolic    │
+                                                        │  Control Layer)   │
+                                                        └─────────┬─────────┘
+                                                                  │
+                                                                  ▼
+                         ┌────────────────────────────────────────────────────┐
+                         │              Retrieval (Once at Start)             │
+                         └────────────────────────┬───────────────────────────┘
+                                                  │
+                                                  ▼
+        ┌──────┐         ┌────────────────────────────────────────────────────┐
+        │      │         │              Cognition (With Memory)               │◄────────┐
+        │      │         └────────────────────────┬───────────────────────────┘         │
+        │      │                                  │                                     │
+        │ Loop │                                  ▼                                     │
+        │Until │         ┌────────────────────────────────────────────────────┐         │
+        │ Done │         │                    Control                         │         │
+        │      │         └──────────┬─────────────────────────┬───────────────┘         │
+        │      │                    │                         │                         │
+        │      │                    │ Safe = True             │ HITL Check:             │
+        │      │                    │                         │ State Freeze            │
+        │      │                    │                         ▼                         │
+        │      │                    │              ┌─────────────────────┐              │
+        │      │                    │              │   Human Decision    │              │
+        │      │                    │              └──┬─────────┬─────┬──┘              │
+        │      │                    │                 │         │     │                 │
+        │      │                    │        Approve  │  Modify │     │ Reject          │
+        │      │                    │     State Thaw  │State Thaw     │ State Thaw      │
+        │      │                    │                 │         │     │                 │
+        │      │                    ▼                 ▼         │     │                 │
+        │      │         ┌───────────────────────────────┐     │     │                 │
+        │      │         │           Action              │◄────┘     │                 │
+        │      │         └──────────────┬────────────────┘           │                 │
+        │      │                        │                            │                 │
+        │      │                        │                            ▼                 │
+        │      │                        │              ┌─────────────────────────┐     │
+        │      │                        │              │   Virtual Rejection     │     │
+        │      │                        │              │   Cycle (with Feedback) │     │
+        │      │                        │              └────────────┬────────────┘     │
+        │      │                        │                           │                  │
+        │      │                        ▼                           │                  │
+        │      │         ┌────────────────────────────────────────────────────┐        │
+        │      │         │                  Memory Update                     │◄───────┘
+        │      │         └────────────────────────┬───────────────────────────┘
+        │      │                                  │
+        │      │                                  ▼
+        │      │         ┌────────────────────────────────────────────────────┐
+        │      │         │              Done? (Task Complete)                 │
+        └──────┘         └────────────────────────┬───────────────────────────┘
+                                                  │
+                                                  ▼
+                         ┌────────────────────────────────────────────────────┐
+                         │            Audit Log (Glassbox Trace)              │
+                         └────────────────────────────────────────────────────┘
 ```
 
 ## Files
@@ -131,8 +151,9 @@ thawed = hitl_manager.thaw_state(frozen.freeze_id)
 When human rejects an action, instead of failing:
 
 1. Create a **virtual rejection cycle**
-2. Inject human feedback into cognition context
-3. Re-enter cognition with awareness of rejection
+2. **Skip Action entirely** — go directly to Memory Update
+3. Store rejection feedback in Memory
+4. Loop back to Cognition with awareness of rejection
 
 ```python
 # After rejection
@@ -147,6 +168,8 @@ context.update({
     "rejection_reason": "Wrong email address",
     "retry_guidance": "Consider alternative approaches"
 })
+
+# Note: Action is NOT executed - control goes directly to Memory Update
 ```
 
 ### 3. Action-Centric Intervention
@@ -156,7 +179,8 @@ HITL checks happen at the **action boundary** (after Control, before Action):
 - Cognition proposes action
 - Control validates against rules
 - **HITL Check**: Evaluate if human intervention needed
-- Action executes (only if approved)
+  - **Approve/Modify** → Action → Memory Update
+  - **Reject** → Virtual Rejection Cycle → Memory Update (bypass Action)
 
 ### 4. HITL Policy Configuration
 
